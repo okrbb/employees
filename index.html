@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zamestnanecký Portál</title>
+     <link rel="icon" href="./css/favicon.png" type="image/x-icon">
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    
+    <link rel="stylesheet" href="./css/styles.css">
+</head>
+<body>
+    <div id="login-modal-overlay" class="login-overlay">
+        <div class="login-modal">
+            <div class="logo">
+                    <img src="./css/logo2.svg" alt="Logo Odbor Krízového Riadenia" class="logo-img">
+            </div>
+            <form id="login-form">
+                <input type="password" id="oec-input" placeholder="heslo ..." required autocomplete="off">
+                <button type="submit">
+                    <i class="fas fa-sign-in-alt"></i> Prihlásiť sa
+                </button>
+                <div id="login-error-msg" class="login-error"></div>
+            </form>
+        </div>
+    </div>
+
+    <div class="portal-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <img src="./css/logo2.svg" alt="Logo Odbor Krízového Riadenia" class="logo-img">
+                    <h2>HR portál</h2>
+                </div>
+            </div>
+
+            <div class="search-container">
+                <i class="fas fa-search search-icon"></i>
+                <input type="text" placeholder="Vyhľadať zamestnanca...">
+            </div>
+
+            <div class="search-results-wrapper">
+                <ul class="search-results">
+                    </ul>
+            </div>
+
+            <nav class="main-menu">
+                <h3 id="employee-count-display">Načítavam...</h3>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="user-info">
+                    <div class="user-initials" id="sidebar-user-initials">--</div>
+                    <div class="user-details">
+                        <span class="user-name" id="sidebar-user-name">---</span>
+                        <span class="user-position" id="sidebar-user-position">---</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <header class="employee-header">
+                <div class="employee-name-section">
+                    <h1>---</h1>
+                    <span class="employee-id">Osobné číslo: ---</span>
+                </div>
+                
+                <div class="header-actions">                    
+                    <div class="employee-badge" id="export-excel-btn" title="Stiahnuť zoznam (XLSX)">
+                        <i class="fas fa-id-card"></i>
+                    </div>
+                    <div class="employee-badge" id="logout-btn" title="Odhlásiť sa">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </div>
+                </div>
+            </header>
+
+            <div class="cards-container">
+                <article class="card" id="personal-info">
+                    <div class="card-header">
+                        <i class="fas fa-user"></i>
+                        <h2>Osobné údaje</h2>
+                    </div>
+                    <dl class="info-list">
+                        <dt>Titul</dt>
+                        <dd>---</dd>
+                        <dt>Meno</dt>
+                        <dd>---</dd>
+                        <dt>Priezvisko</dt>
+                        <dd>---</dd>
+                        <dt>Adresa</dt>
+                        <dd>---</dd>
+                        <dt>Kontakt</dt>
+                        <dd>---</dd>
+                        <dt>Nástup</dt>
+                        <dd>---</dd>
+                    </dl>
+                </article>
+
+                <article class="card" id="job-info">
+                    <div class="card-header">
+                        <i class="fas fa-sitemap"></i>
+                        <h2 id="show-service-description" class="clickable-card-title">Pracovné zaradenie</h2>
+                    </div>
+                    <div class="info-block">
+                        <h3>Platová trieda</h3>
+                        <p class="salary-grade">Trieda ---</p>
+                        <h3>Funkcia</h3>
+                        <p>---</p>
+                        <h3>Príplatky</h3>
+                        <p>---</p>
+                    </div>
+                </article>
+            </div>
+
+            <article class="card hidden full-width-card" id="service-description-card">
+                <button class="card-close-btn" id="close-service-description" aria-label="Zavrieť">
+                    <i class="fas fa-times"></i>
+                </button>
+                <div class="card-header">
+                    <i class="fas fa-clipboard-list"></i>
+                    <h2>Opis služobnej činnosti</h2>
+                </div>
+                <div class="info-block scrollable-content">
+                    <p>Načítavam...</p>
+                </div>
+            </article>
+        </main>
+    </div>
+    <!-- Pridajte tieto scripty do vášho index.html -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+
+    <script src="./js/script.js"></script>
+</body>
+</html>
