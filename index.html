@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HR portál OKR BB</title>
+    <title>Zamestnanecký Portál</title>
      <link rel="icon" href="./css/favicon.png" type="image/x-icon">
 
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -21,7 +21,10 @@
                     <img src="./css/logo2.svg" alt="Logo Odbor Krízového Riadenia" class="logo-img">
             </div>
             <form id="login-form">
-                <input type="password" id="oec-input" placeholder="heslo ..." required autocomplete="off">
+                <input type="email" id="email-input" placeholder="E-mail" required autocomplete="username">
+                
+                <input type="password" id="password-input" placeholder="Heslo" required autocomplete="current-password">
+                
                 <button type="submit">
                     <i class="fas fa-sign-in-alt"></i> Prihlásiť sa
                 </button>
@@ -142,5 +145,4 @@
 
     <script src="./js/script.js"></script>
 </body>
-
 </html>
