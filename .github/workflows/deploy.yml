@@ -36,9 +36,6 @@ jobs:
           
           # Nahradí __FIREBASE_API_KEY__ v js/script.js hodnotou z GitHub Secrets
           sed -i "s|__FIREBASE_API_KEY__|${{ secrets.FIREBASE_API_KEY }}|g" js/script.js
-          
-          # Nahradí __GOOGLE_FORM_URL__ v js/script.js hodnotou z GitHub Secrets
-          sed -i "s|__GOOGLE_FORM_URL__|${{ secrets.GOOGLE_FORM_URL }}|g" js/script.js
 
       # Krok 3: Nastaví GitHub Pages
       - name: Setup Pages
