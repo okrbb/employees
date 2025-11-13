@@ -39,8 +39,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Premenné, kde si budeme pamätať načítané dáta
     let allEmployees = [];
     let paymentGrades = new Map();
-    let validOECs = new Set(); // Presunuté do globálneho rozsahu
-    let jobDescriptions = {}; // <-- NOVÁ PREMENNÁ PRE OPISY PRÁCE
+    let validOECs = new Set(); 
+    let jobDescriptions = {}; 
     let activeUser = null;
 
     // Selektory na hlavné elementy, s ktorými pracujeme
@@ -50,203 +50,350 @@ document.addEventListener('DOMContentLoaded', () => {
     // Selektory pre nový login modál
     const loginOverlay = document.querySelector('#login-modal-overlay');
     const loginForm = document.querySelector('#login-form');
-    const emailInput = document.querySelector('#email-input'); // <-- NOVÉ
-    const passwordInput = document.querySelector('#password-input'); // <-- UPRAVENÉ
+    const emailInput = document.querySelector('#email-input'); 
+    const passwordInput = document.querySelector('#password-input'); 
     const loginErrorMsg = document.querySelector('#login-error-msg');
+
+    // --- SELEKTORY PRE MODÁL MAZANIA ---
+    const deleteModalOverlay = document.querySelector('#delete-logs-overlay');
+    const modalBtnCancel = document.querySelector('#modal-btn-cancel');
+    const modalBtnConfirmDelete = document.querySelector('#modal-btn-confirm-delete');
+    const modalMessage = deleteModalOverlay ? deleteModalOverlay.querySelector('p') : null;
 
 
     /**
-     * <-- NOVÁ FUNKCIA PRE LOGOVANIE (Bez zmeny) -->
-     * Odošle dáta o prihlásení do Google Forms na pozadí.
-     * @param {Object} user - Objekt prihláseného používateľa
+     * Zaloguje pokus o prístup do Firebase/Firestore kolekcie 'access_logs'.
+     * @param {string} email - E-mail použitý pri pokuse.
+     * @param {Object|null} user - Objekt zamestnanca (ak bol nájdený).
+     * @param {boolean} success - Či bol pokus úspešný (overený v Auth aj v DB).
+     * @param {string|null} errorInfo - Chybová hláška (ak nastala).
      */
-    async function logLoginAttempt(user) {
-        
-        // ==================================================================
-        // !!! NAHRAĎTE TIETO HODNOTY VAŠIMI HODNOTAMI Z GOOGLE FORMULÁRA !!!
-        // ==================================================================
-        
-        // 1. URL adresa končiaca na /formResponse
-        const GOOGLE_FORM_ACTION_URL = '__GOOGLE_FORM_URL__';
-        
-        // 2. ID, ktoré zodpovedá vášmu poľu "MenoPriezvisko"
-        const ENTRY_ID_MENO = 'entry.1888327'; 
-        
-        // 3. ID, ktoré zodpovedá vášmu poľu "OEC"
-        const ENTRY_ID_OEC = 'entry.1372315452';
-        
-        // 4. ID, ktoré zodpovedá vášmu poľu "CasPrihlasenia" (ak ho máte)
-        const ENTRY_ID_CAS = 'entry.2133691514';
-        
-        // ==================================================================
-        // !!! KONIEC ÚPRAV !!!
-        // ==================================================================
-
-
-        const timestamp = new Date().toLocaleString('sk-SK');
-        const formData = new FormData();
-
-        // Priradíme dáta do formulára
-        formData.append(ENTRY_ID_MENO, `${user.titul} ${user.meno} ${user.priezvisko}`);
-        formData.append(ENTRY_ID_OEC, user.oec);
-        formData.append(ENTRY_ID_CAS, timestamp); // Ak pole pre čas nemáte, tento riadok zakomentujte
-
+    async function logAccess(email, user, success, errorInfo) {
         try {
-            // Odošleme dáta a nečakáme na odpoveď
-            await fetch(GOOGLE_FORM_ACTION_URL, {
-                method: 'POST',
-                body: formData,
-                mode: 'no-cors' // Dôležité: Povieme prehliadaču, aby neočakával odpoveď
-            });
-            // Log bol úspešne odoslaný (alebo aspoň odoslaný bez chyby)
+            const logData = {
+                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                email: email,
+                success: success,
+                error: errorInfo || null,
+            };
+
+            if (user) {
+                logData.meno = `${user.titul || ''} ${user.meno} ${user.priezvisko}`.trim();
+                logData.oec = user.oec || 'N/A';
+                logData.funkcia = user.funkcia || 'N/A';
+            }
+
+            await db.collection("access_logs").add(logData);
+            
+            console.log('Log prístupu úspešne odoslaný do Firebase.');
+
         } catch (error) {
-            // Aj keby logovanie zlyhalo, aplikácia musí bežať ďalej.
-            // Chybu si vypíšeme len do konzoly prehliadača.
-            console.error('Chyba pri odosielaní logu:', error);
+            console.error('Chyba pri odosielaní logu do Firebase:', error);
         }
     }
 
 
     /**
- * <-- KOMPLETNE PREPRACOVANÁ FUNKCIA (async):
- * Zobrazí modál a čaká na prihlásenie e-mailom a heslom.
- * Overí používateľa cez Firebase Auth.
- * Ak je úspešné, načíta VŠETKÝCH zamestnancov A nájde prihláseného používateľa
- * podľa jeho e-mailu.
- * @returns {Promise<Object|null>}
- */
-async function handleLogin() {
-    // Vrátime nový Promise. Vonkajší kód (initializeApp) naň bude čakať.
-    return new Promise((resolve, reject) => {
+     * Zobrazí modál a čaká na prihlásenie e-mailom a heslom.
+     */
+    async function handleLogin() {
+        return new Promise((resolve, reject) => {
 
-        // POZNÁMKA: Modál je už viditeľný štandardne, nemusíme robiť nič.
+            loginForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                loginErrorMsg.style.display = 'none'; 
+                const email = emailInput.value.trim();
+                const password = passwordInput.value.trim();
 
-        // 1. Nastavíme listener na formulár
-        loginForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            loginErrorMsg.style.display = 'none'; // Skryjeme chybu
-            const email = emailInput.value.trim();
-            const password = passwordInput.value.trim();
+                if (!email || !password) {
+                    loginErrorMsg.textContent = 'Zadajte e-mail aj heslo.';
+                    loginErrorMsg.style.display = 'block';
+                    return;
+                }
 
-            if (!email || !password) {
-                loginErrorMsg.textContent = 'Zadajte e-mail aj heslo.';
-                loginErrorMsg.style.display = 'block';
+                try {
+                    console.log(`Pokus o prihlásenie pre: ${email}`);
+                    const userCredential = await auth.signInWithEmailAndPassword(email, password);
+                    console.log("Firebase Auth: Prihlásenie úspešné.", userCredential.user.uid);
+
+                    console.log("Načítavam zamestnancov z Firebase (kolekcia 'employees')...");
+                    const querySnapshot = await db.collection("employees").get();
+
+                    const employees = [];
+                    querySnapshot.forEach((doc) => {
+                        employees.push(doc.data());
+                    });
+                    console.log(`Načítaných ${employees.length} zamestnancov.`);
+
+                    if (employees.length === 0) {
+                        throw new Error('Neboli nájdení žiadni zamestnanci v databáze.');
+                    }
+
+                    const loggedInUser = employees.find(emp => 
+                            emp.mail && emp.mail.toLowerCase() === email.toLowerCase()
+                        );
+
+                    if (!loggedInUser) {
+                        console.error(`Používateľ ${email} bol prihlásený, ale nenájdený v databáze zamestnancov.`);
+                        throw new Error('Účet nie je priradený k zamestnancovi.');
+                    }
+
+                    await logAccess(email, loggedInUser, true, null);
+
+                    const isVedúci = loggedInUser.funkcia === 'vedúci oddelenia' || loggedInUser.funkcia === 'vedúci odboru';
+
+                    if (isVedúci) {
+                        loginOverlay.classList.add('hidden'); 
+                        resolve({ allEmployeesData: employees, currentUser: loggedInUser });
+                    } else {
+                        throw new Error('Prístup zamietnutý (nedostatočné oprávnenia).');
+                    }
+
+                } catch (error) {
+                    console.error("Chyba pri prihlásení:", error);
+                    let msg = 'prístup zamietnutý';
+                    if (error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
+                        msg = 'Nesprávny e-mail alebo heslo.';
+                    } else if (error.message) {
+                        msg = error.message; 
+                    }
+
+                    loginErrorMsg.textContent = msg;
+                    loginErrorMsg.style.display = 'block';
+
+                    await logAccess(email, null, false, msg);
+
+                    passwordInput.value = ''; 
+                    await auth.signOut();
+                }
+            });
+
+            loginOverlay.addEventListener('click', (e) => {
+                if (e.target === loginOverlay) {
+                    // Neurobíme nič
+                }
+            });
+        });
+    }
+
+
+    /**
+     * Stiahne logy prístupu z Firestore a vygeneruje XLSX súbor.
+     * Použije modál na zobrazenie statusu.
+     */
+    async function downloadAccessLogs() {
+        const userInitialsButton = document.querySelector('#sidebar-user-initials');
+        
+        if (!userInitialsButton || userInitialsButton.classList.contains('downloading')) {
+            return; 
+        }
+
+        console.log('Iniciujem sťahovanie logov...');
+        
+        // Resetujeme a zobrazíme modál pre status
+        if (!deleteModalOverlay || !modalMessage || !modalBtnConfirmDelete || !modalBtnCancel) return;
+        
+        modalMessage.textContent = 'Pripravujem sťahovanie logov prístupu. Môže to chvíľu trvať...';
+        modalBtnConfirmDelete.classList.add('hidden'); // Skryjeme tlačidlo mazania
+        modalBtnCancel.textContent = 'Zatvoriť'; // Zmeníme text tlačidla Zrušiť
+        modalBtnCancel.classList.remove('hidden');
+        modalBtnCancel.disabled = false;
+        deleteModalOverlay.classList.remove('hidden'); 
+        
+        userInitialsButton.classList.add('downloading'); 
+
+        try {
+            const snapshot = await db.collection("access_logs").orderBy("timestamp", "desc").get();
+            
+            if (snapshot.empty) {
+                if(modalMessage) modalMessage.textContent = 'Nenašli sa žiadne logy prístupu.';
+                userInitialsButton.classList.remove('downloading'); 
                 return;
             }
 
-            try {
-                // 2. Pokus o prihlásenie cez Firebase Authentication
-                console.log(`Pokus o prihlásenie pre: ${email}`);
-                const userCredential = await auth.signInWithEmailAndPassword(email, password);
-                console.log("Firebase Auth: Prihlásenie úspešné.", userCredential.user.uid);
-
-                // 3. Po úspešnom prihlásení načítame dáta z Firestore
-                // (Teraz by to malo prejsť, lebo spĺňame pravidlá)
-                console.log("Načítavam zamestnancov z Firebase (kolekcia 'employees')...");
-                const querySnapshot = await db.collection("employees").get();
-
-                const employees = [];
-                querySnapshot.forEach((doc) => {
-                    employees.push(doc.data());
-                });
-                console.log(`Načítaných ${employees.length} zamestnancov.`);
-
-                if (employees.length === 0) {
-                    throw new Error('Neboli nájdení žiadni zamestnanci v databáze.');
+            const headers = ["Časová pečiatka", "E-mail", "Meno", "OEČ", "Funkcia", "Stav", "Chybová hláška"];
+            const data = snapshot.docs.map(doc => {
+                const log = doc.data();
+                let timestampStr = "N/A";
+                if (log.timestamp && log.timestamp.toDate) {
+                    timestampStr = log.timestamp.toDate().toLocaleString('sk-SK');
                 }
+                return [
+                    timestampStr, log.email || '', log.meno || '---', log.oec || '---',
+                    log.funkcia || '---', log.success ? 'ÚSPECH' : 'ZLYHANIE', log.error || ''
+                ];
+            });
+            const sheetData = [headers, ...data];
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.aoa_to_sheet(sheetData);
+            ws['!cols'] = [
+                { wch: 20 }, { wch: 30 }, { wch: 25 }, { wch: 10 },
+                { wch: 20 }, { wch: 10 }, { wch: 40 }
+            ];
+            XLSX.utils.book_append_sheet(wb, ws, "Logy Prístupov");
+            XLSX.writeFile(wb, "access_logs_OKR.xlsx");
+            
+            if(modalMessage) modalMessage.textContent = 'Logy boli úspešne stiahnuté.';
 
-                // 4. Nájdeme prihláseného používateľa v našej databáze
+        } catch (error) {
+            console.error('Chyba pri sťahovaní logov:', error);
+            if(modalMessage) modalMessage.textContent = 'Nastala chyba pri sťahovaní logov. Skontrolujte konzolu prehliadača.';
+        } finally {
+            userInitialsButton.classList.remove('downloading');
+        }
+    }
 
-                const loggedInUser = employees.find(emp => 
-                        emp.mail && emp.mail.toLowerCase() === email.toLowerCase()
-                    );
+    // --- FUNKCIE PRE MAZANIE LOGOV ---
 
-                if (!loggedInUser) {
-                    // Účet existuje vo Firebase Auth, ale nie je v databáze employees
-                    console.error(`Používateľ ${email} bol prihlásený, ale nenájdený v databáze zamestnancov.`);
-                    throw new Error('Účet nie je priradený k zamestnancovi.');
-                }
+    /**
+     * Efektívne zmaže všetky dokumenty v kolekcii 'access_logs' pomocou dávok (batches).
+     */
+    async function executeBatchDelete() {
+        console.log('Spúšťam mazanie logov...');
+        if (!modalMessage || !modalBtnConfirmDelete || !modalBtnCancel) return;
 
-                // 5. Overíme, či má používateľ práva (pôvodná logika)
-                const isVedúci = loggedInUser.funkcia === 'vedúci oddelenia' || loggedInUser.funkcia === 'vedúci odboru';
+        modalMessage.textContent = 'Prebieha mazanie logov... Prosím, nezatvárajte okno.';
+        modalBtnConfirmDelete.disabled = true;
+        modalBtnCancel.disabled = true;
+        modalBtnConfirmDelete.classList.add('loading');
 
-                if (isVedúci) {
-                    // Úspech!
-                    logLoginAttempt(loggedInUser); // Voliteľné logovanie
-                    loginOverlay.classList.add('hidden'); 
-                    resolve({ allEmployeesData: employees, currentUser: loggedInUser });
-                } else {
-                    // Nemá práva
-                    throw new Error('Prístup zamietnutý (nedostatočné oprávnenia).');
-                }
+        try {
+            const query = db.collection("access_logs");
+            const snapshot = await query.get();
 
-            } catch (error) {
-                // 6. Chyba pri prihlásení
-                console.error("Chyba pri prihlásení:", error);
-                let msg = 'prístup zamietnutý';
-                if (error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
-                    msg = 'Nesprávny e-mail alebo heslo.';
-                } else if (error.message) {
-                    msg = error.message; // Zobrazíme chybu (napr. 'Prístup zamietnutý')
-                }
-
-                loginErrorMsg.textContent = msg;
-                loginErrorMsg.style.display = 'block';
-                passwordInput.value = ''; // Vymažeme len heslo
-
-                // Odhlásime používateľa pre istotu, ak by sa zasekol v zlom stave
-                await auth.signOut();
-
-                // Promise *nerezolvujeme*, čakáme na ďalší pokus o prihlásenie
+            if (snapshot.empty) {
+                console.log('Žiadne logy na mazanie.');
+                modalMessage.textContent = 'Nenašli sa žiadne logy na mazanie.';
+                return;
             }
-        });
 
-        // 7. (Voliteľné) Ak klikne na pozadie
-        loginOverlay.addEventListener('click', (e) => {
-            if (e.target === loginOverlay) {
-                // Ak klikne vedľa, neurobíme nič, musí sa prihlásiť
-                // Môžete pridať `reject(new Error('Login cancelled'))` ak chcete
+            const batchSize = 500;
+            let batches = [];
+            let currentBatch = db.batch();
+            let i = 0;
+
+            snapshot.docs.forEach(doc => {
+                currentBatch.delete(doc.ref);
+                i++;
+                if (i === batchSize) {
+                    batches.push(currentBatch);
+                    currentBatch = db.batch();
+                    i = 0;
+                }
+            });
+
+            if (i > 0) {
+                batches.push(currentBatch);
             }
-        });
 
-    });
-}
+            console.log(`Pripravených ${batches.length} dávok na mazanie ${snapshot.size} dokumentov.`);
+
+            for (const batch of batches) {
+                await batch.commit();
+            }
+
+            console.log('Všetky logy boli úspešne zmazané.');
+            modalMessage.textContent = `Všetky logy (${snapshot.size} záznamov) boli úspešne zmazané.`;
+
+        } catch (error) {
+            console.error('Chyba pri mazaní logov:', error);
+            modalMessage.textContent = 'Nastala chyba pri mazaní logov. Skontrolujte konzolu a Firebase pravidlá.';
+        } finally {
+            modalBtnConfirmDelete.classList.remove('loading');
+            modalBtnConfirmDelete.disabled = false;
+            modalBtnCancel.disabled = false;
+            modalBtnConfirmDelete.classList.add('hidden'); 
+            modalBtnCancel.textContent = 'Zatvoriť'; 
+        }
+    }
+
+    /**
+     * Zobrazí modál pre potvrdenie mazania (po pravom kliku).
+     */
+    function handleDeleteLogsRequest(event) {
+        event.preventDefault(); // Zabrání zobrazeniu kontextového menu prehliadača
+        console.log('Požiadavka na mazanie logov (pravý klik)...');
+
+        if (!deleteModalOverlay || !modalMessage || !modalBtnConfirmDelete || !modalBtnCancel) {
+            console.error('Chýbajú elementy modálu pre mazanie.');
+            return;
+        }
+
+        // Resetujeme modál do pôvodného stavu pre mazanie
+        modalMessage.innerHTML = 'Naozaj chcete permanentne zmazať <strong>všetky</strong> logy prístupu? Táto akcia je nezvratná.';
+        modalBtnConfirmDelete.classList.remove('hidden', 'loading');
+        modalBtnConfirmDelete.disabled = false;
+        modalBtnCancel.classList.remove('hidden');
+        modalBtnCancel.disabled = false;
+        modalBtnCancel.textContent = 'Zrušiť';
+
+        deleteModalOverlay.classList.remove('hidden');
+    }
+
+    /**
+     * Skryje modál mazania/statusu.
+     */
+    function hideDeleteModal() {
+        if (deleteModalOverlay) {
+            deleteModalOverlay.classList.add('hidden');
+        }
+    }
+
+    // Priradíme listenery na tlačidlá modálu
+    if (modalBtnCancel) {
+        modalBtnCancel.addEventListener('click', hideDeleteModal);
+    }
+    if (modalBtnConfirmDelete) {
+        modalBtnConfirmDelete.addEventListener('click', executeBatchDelete);
+    }
+    // --- KONIEC FUNKCIÍ PRE MAZANIE ---
 
 
     /**
      * Hlavná funkcia na načítanie zvyšných dát (tarify a opisy práce) z Firebase
-     * @param {Array} loadedEmployees - Dáta, ktoré sme už načítali pri overení (kompletný zoznam)
-     * @param {Object} currentUser - Objekt prihláseného používateľa (vedúceho)
      */
-    async function loadData(loadedEmployees, currentUser) { // <-- PRIDANÉ ASYNC
+    async function loadData(loadedEmployees, currentUser) { 
         activeUser = currentUser;
+
+        // --- UPRAVENÁ SEKCA PRE AKTIVÁCIU TLAČIDIEL (ĽAVÝ + PRAVÝ KLIK) ---
+        if (activeUser && activeUser.funkcia === 'vedúci odboru') {
+            
+            const userInitialsButton = document.querySelector('#sidebar-user-initials');
+            
+            if (userInitialsButton) {
+                userInitialsButton.classList.add('clickable-logs'); 
+                
+                // Aktualizujeme titulok (title)
+                userInitialsButton.setAttribute('title', 'Ľavý klik: stiahnuť logy\nPravý klik: zmazať logy'); 
+                
+                // Pridáme listener na ĽAVÝ klik (stiahnutie)
+                userInitialsButton.addEventListener('click', downloadAccessLogs);
+                
+                // Pridáme listener na PRAVÝ klik (mazanie)
+                userInitialsButton.addEventListener('contextmenu', handleDeleteLogsRequest);
+            }
+        }
+        // --- KONIEC ÚPRAVY ---
+
         try {
             
-            // <-- #### ZAČIATOK NOVEJ ÚPRAVY (Filtrácia zamestnancov) #### --> (Bez zmeny)
             if (currentUser && currentUser.funkcia === 'vedúci oddelenia') {
                 allEmployees = loadedEmployees.filter(emp => emp.oddelenie === currentUser.oddelenie);
             } else {
                 allEmployees = loadedEmployees;
             }
-            // <-- #### KONIEC NOVEJ ÚPRAVY (Filtrácia zamestnancov) #### -->
 
-
-            // <-- #### ZAČIATOK NOVEJ ÚPRAVY (Počítadlo zamestnancov) #### --> (Bez zmeny)
             const employeeCountDisplay = document.querySelector('#employee-count-display');
             if (employeeCountDisplay) {
                 employeeCountDisplay.textContent = `Počet zamestnancov: ${allEmployees.length}`;
             }
-            // <-- #### KONIEC NOVEJ ÚPRAVY (Počítadlo zamestnancov) #### -->
 
-
-            // Načítame platobné tarify z FIREBASE
             console.log("Načítavam platové tarify z Firebase (kolekcia 'payments')...");
-            const paymentSnapshot = await db.collection("payments").get(); // <-- FIREBASE VOLANIE
+            const paymentSnapshot = await db.collection("payments").get(); 
             
-            paymentGrades.clear(); // Vyčistíme mapu pre istotu
+            paymentGrades.clear(); 
             paymentSnapshot.forEach(doc => {
                 const item = doc.data();
-                // Kontrola pre istotu
                 if (item.platova_trieda !== undefined && item.platova_tarifa !== undefined) {
                     paymentGrades.set(item.platova_trieda, parseFloat(item.platova_tarifa));
                 }
@@ -254,22 +401,18 @@ async function handleLogin() {
             console.log(`Načítaných ${paymentGrades.size} platových taríf.`);
 
 
-            // Načítame opisy práce z FIREBASE
             console.log("Načítavam opisy práce z Firebase (kolekcia 'jobDescriptions')...");
-            const jobDescSnapshot = await db.collection("jobDescriptions").get(); // <-- FIREBASE VOLANIE
+            const jobDescSnapshot = await db.collection("jobDescriptions").get(); 
             
-            jobDescriptions = {}; // Inicializujeme pre istotu
+            jobDescriptions = {}; 
             jobDescSnapshot.forEach((doc) => {
-                // Kľúč je ID dokumentu (napr. "28831")
                 jobDescriptions[doc.id] = doc.data(); 
             });
             console.log(`Načítaných ${Object.keys(jobDescriptions).length} opisov práce.`);
 
             
-            // Vyplníme zoznam v sidebari (teraz už s filtrovanými dátami)
             populateEmployeeList(allEmployees);
             
-            // --- ZAČIATOK ÚPRAVY (Zobrazenie prihláseného usera) --- (Bez zmeny)
             if (currentUser) {
                 displayEmployeeDetails(currentUser);
                 
@@ -280,11 +423,9 @@ async function handleLogin() {
                 updateSidebarUser(currentUser);
                 
             } else if (allEmployees.length > 0) {
-                // Fallback, ak by nebol currentUser (hoci by mal byť)
                 displayEmployeeDetails(allEmployees[0]);
                 resultsList.querySelector('li')?.classList.add('active');
             }
-            // --- KONIEC ÚPRAVY ---
 
         } catch (error) {
             console.error('Nepodarilo sa načítať dáta z Firebase:', error);
@@ -294,7 +435,6 @@ async function handleLogin() {
 
     /**
      * Funkcia, ktorá vyplní zoznam zamestnancov v ľavom paneli.
-     * @param {Array} employees - Pole objektov zamestnancov
      */
     function populateEmployeeList(employees) {
         resultsList.innerHTML = '';
@@ -307,25 +447,17 @@ async function handleLogin() {
         });
     }
 
-    //
-    // <-- #### ZAČIATOK OPRAVENEJ POMOCNEJ FUNKCIE #### -->
-    //
     /**
      * Pomocná funkcia na generovanie HTML pre opis služobnej činnosti.
-     * UPRAVENÁ VERZIA: Nahrádza \n za <br> pre správne zobrazenie.
-     * @param {Object} data - Objekt s opisom činnosti (napr. jobDescriptions['28831'])
-     * @returns {string} - Výsledný HTML reťazec
      */
     function buildDescriptionHtml(data) {
-        if (!data) return ''; // Bezpečnostná kontrola
+        if (!data) return ''; 
 
         let html = '';
-        const topMargin = 'style="margin-top: 1.5rem;"'; // cca 24px
+        const topMargin = 'style="margin-top: 1.5rem;"'; 
 
-        // --- OPRAVENÁ SEKCIA (bola tu chyba s '3') ---
         if (data['Najnáročnejšia činnosť (charakteristika platovej triedy)']) {
             html += `<h3><b>Najnáročnejšia činnosť (charakteristika platovej triedy)</b></h3>`;
-            // Skontrolujeme, či je to pole (Array)
             if (Array.isArray(data['Najnáročnejšia činnosť (charakteristika platovej triedy)'])) {
                 html += '<ul>';
                 data['Najnáročnejšia činnosť (charakteristika platovej triedy)'].forEach(item => {
@@ -333,42 +465,33 @@ async function handleLogin() {
                 });
                 html += '</ul>';
             } else {
-                // Ak to nie je pole (je to String), vypíšeme ako paragraf
-                // <-- UPRAVENÉ: Pridané .replace(/\n/g, '<br>')
                 html += `<p>${data['Najnáročnejšia činnosť (charakteristika platovej triedy)'].replace(/\n/g, '<br>')}</p>`;
             }
         }
-        // --- KONIEC OPRAVY ---
         
         if (data['Bližšie určená najnáročnejšia činnosť']) {
             html += `<h3 ${topMargin}><b>Bližšie určená najnáročnejšia činnosť</b></h3>`;
             
-            // <-- PRIDANÁ KONTROLA -->
             if (Array.isArray(data['Bližšie určená najnáročnejšia činnosť'])) {
                 html += '<ul>';
                 data['Bližšie určená najnáročnejšia činnosť'].forEach(item => {
                     if (item === "Ďalej: ") {
                         html += `<li class="list-subheading">${item}</li>`;
                     } else {
-                        // Odsadenie pre vnorené položky
                         const style = item.trim().startsWith('na úseku') ? ' style="margin-left: 20px;"' : '';
                         html += `<li${style}>${item}</li>`;
                     }
                 });
                 html += '</ul>';
             } else {
-                // Ak to nie je pole (String), nahradíme nové riadky ( \n ) za <br>
                 let textBlock = data['Bližšie určená najnáročnejšia činnosť'];
-                // <-- UPRAVENÉ: Pôvodné .split('. ').join('.<br>') nahradené za .replace(/\n/g, '<br>')
                 textBlock = textBlock.replace(/\n/g, '<br>');
                 html += `<p>${textBlock}</p>`;
             }
         }
 
-        // --- OPRAVENÁ SEKCIA (pridaná kontrola Array vs String) ---
         if (data['Ďalšia činnosť (charakteristika platovej triedy)']) {
             html += `<h3 ${topMargin}><b>Ďalšia činnosť (charakteristika platovej triedy)</b></h3>`;
-            // Skontrolujeme, či je to pole (Array)
             if (Array.isArray(data['Ďalšia činnosť (charakteristika platovej triedy)'])) {
                  html += '<ul>';
                 data['Ďalšia činnosť (charakteristika platovej triedy)'].forEach(item => {
@@ -376,17 +499,13 @@ async function handleLogin() {
                 });
                 html += '</ul>';
             } else {
-                // Ak to nie je pole (je to String), vypíšeme ako paragraf
-                // <-- UPRAVENÉ: Pridané .replace(/\n/g, '<br>')
                 html += `<p>${data['Ďalšia činnosť (charakteristika platovej triedy)'].replace(/\n/g, '<br>')}</p>`;
             }
         }
-        // --- KONIEC OPRAVY ---
 
         if (data['Bližšie určená ďalšia činnosť']) {
             html += `<h3 ${topMargin}><b>Bližšie určená ďalšia činnosť</b></h3>`;
 
-            // <-- PRIDANÁ KONTROLA -->
             if (Array.isArray(data['Bližšie určená ďalšia činnosť'])) {
                 html += '<ul>';
                 data['Bližšie určená ďalšia činnosť'].forEach(item => {
@@ -394,9 +513,7 @@ async function handleLogin() {
                 });
                 html += '</ul>';
             } else {
-                // Ak to nie je pole (String), nahradíme nové riadky ( \n ) za <br>
                 let textBlock = data['Bližšie určená ďalšia činnosť'];
-                // <-- UPRAVENÉ: Pôvodné .split('. ').join('.<br>') nahradené za .replace(/\n/g, '<br>')
                 textBlock = textBlock.replace(/\n/g, '<br>');
                 html += `<p>${textBlock}</p>`;
             }
@@ -405,7 +522,6 @@ async function handleLogin() {
         if (data['Ostatné činnosti, ktoré súvisia so zaradením v organizačnej štruktúre']) {
             html += `<h3 ${topMargin}><b>Ostatné činnosti, ktoré súvisia so zaradením v organizačnej štruktúre</b></h3>`;
             
-            // <-- PRIDANÁ KONTROLA -->
             if (Array.isArray(data['Ostatné činnosti, ktoré súvisia so zaradením v organizačnej štruktúre'])) {
                 html += '<ul>';
                 data['Ostatné činnosti, ktoré súvisia so zaradením v organizačnej štruktúre'].forEach(item => {
@@ -413,9 +529,7 @@ async function handleLogin() {
                 });
                 html += '</ul>';
             } else {
-                // Ak to nie je pole (String), nahradíme nové riadky ( \n ) za <br>
                 let textBlock = data['Ostatné činnosti, ktoré súvisia so zaradením v organizačnej štruktúre'];
-                // <-- UPRAVENÉ: Pôvodné .split('. ').join('.<br>') nahradené za .replace(/\n/g, '<br>')
                 textBlock = textBlock.replace(/\n/g, '<br>');
                 html += `<p>${textBlock}</p>`;
             }
@@ -423,21 +537,15 @@ async function handleLogin() {
         
         return html;
     }
-    //
-    // <-- #### KONIEC OPRAVENEJ POMOCNEJ FUNKCIE #### -->
-    //
 
     /**
      * Zobrazí detaily vybraného zamestnanca v hlavnom obsahovom okne.
-     * @param {Object} employee - Objekt jedného zamestnanca
      */
     function displayEmployeeDetails(employee) {
         
-        // 1. Aktualizácia hlavičky (Meno a OČE) (Bez zmeny)
         document.querySelector('.employee-header h1').textContent = `${employee.titul} ${employee.meno} ${employee.priezvisko}`;
         document.querySelector('.employee-id').textContent = `Osobné číslo: ${employee.oec}`;
 
-        // 2. Aktualizácia karty "Osobné údaje" (Bez zmeny)
         const personalInfoCard = document.querySelector('#personal-info .info-list');
         if (personalInfoCard) {
             personalInfoCard.innerHTML = `
@@ -461,8 +569,6 @@ async function handleLogin() {
             `;
         }
 
-        // 3. Aktualizácia karty "Pracovné zaradenie" (Bez zmeny)
-        // Logika pre paymentGrades.get() zostáva, lebo sme ju naplnili z Firebase
         const jobInfoCard = document.querySelector('#job-info');
         if (jobInfoCard) {
             let extrasList = '';
@@ -513,30 +619,34 @@ async function handleLogin() {
             `;
         }
         
-        // 4. Aktualizácia novej karty "Opis služobnej činnosti" (Bez zmeny)
-        // Logika pre jobDescriptions[] zostáva, lebo sme ju naplnili z Firebase
         const serviceCard = document.querySelector('#service-description-card');
         if (serviceCard) {
             
-            // <-- #### ZAČIATOK NOVEJ ZLUČOVACEJ LOGIKY (MERGE LOGIC) #### --> (Bez zmeny)
-            
             let opisCinnostiHtml = '';
-            const baseKey = employee.kod; // 1. Primárny kľúč je "kod" zamestnanca
-            let effectiveKey = baseKey; // <-- Kľúč, ktorý sa reálne použije
+            const baseKey = employee.kod; 
+            let effectiveKey = baseKey; 
             let baseData = jobDescriptions[baseKey];
 
-            // <-- #### ZAČIATOK ÚPRAVY PODĽA POŽIADAVKY #### --> (Bez zmeny)
-            if (!baseData) {
-                if (employee.oddelenie === 'KS IZS' && employee.platova_trieda === 5) {
-                    effectiveKey = '5_ISZ';
-                } 
-                else if (employee.oddelenie === 'KS IZS' && employee.platova_trieda === 6) {
-                    effectiveKey = '6_ISZ';
-                }
-                
-                baseData = jobDescriptions[effectiveKey];
+            // ...
+        if (!baseData) {
+            // Použijeme (==) pre porovnanie, aby fungovalo "5" == 5
+            if (employee.oddelenie === 'KS IZS' && employee.platova_trieda == 5) {
+                effectiveKey = '5_ISZ';
+            } 
+            else if (employee.oddelenie === 'KS IZS' && employee.platova_trieda == 6) {
+                effectiveKey = '6_ISZ';
             }
-            // <-- #### KONIEC ÚPRAVY PODĽA POŽIADAVKY #### -->
+            // Doplnené chýbajúce podmienky pre OCOaKP
+            else if (employee.oddelenie === 'OCOaKP' && employee.platova_trieda == 5) {
+                effectiveKey = '5_OCOaKP';
+            } 
+            else if (employee.oddelenie === 'OCOaKP' && employee.platova_trieda == 6) {
+                effectiveKey = '6_OCOaKP';
+            }
+            
+            // Až teraz priradíme baseData na základe správneho effectiveKey
+            baseData = jobDescriptions[effectiveKey];
+        }
 
             let descriptionDataToShow; 
 
@@ -547,16 +657,16 @@ async function handleLogin() {
                 descriptionDataToShow = JSON.parse(JSON.stringify(baseData));
                 let keyToCompare = null;
 
-                if (employee.oddelenie === 'OCOaKP' && employee.platova_trieda === 5) {
+                if (employee.oddelenie === 'OCOaKP' && employee.platova_trieda == 5) {
                     keyToCompare = '5_OCOaKP';
                 } 
-                else if (employee.oddelenie === 'OCOaKP' && employee.platova_trieda === 6) {
+                else if (employee.oddelenie === 'OCOaKP' && employee.platova_trieda == 6) {
                     keyToCompare = '6_OCOaKP';
                 }
-                else if (employee.oddelenie === 'KS IZS' && employee.platova_trieda === 5) {
+                else if (employee.oddelenie === 'KS IZS' && employee.platova_trieda == 5) {
                     keyToCompare = '5_ISZ';
                 }
-                else if (employee.oddelenie === 'KS IZS' && employee.platova_trieda === 6) {
+                else if (employee.oddelenie === 'KS IZS' && employee.platova_trieda == 6) {
                     keyToCompare = '6_ISZ';
                 }
 
@@ -585,7 +695,6 @@ async function handleLogin() {
                                     descriptionDataToShow[sectionKey] = baseSection.concat([addSection]);
                                 } 
                                 else {
-                                    // <-- UPRAVENÉ: Tu tiež nahradíme \n za <br> pri spájaní
                                     const processedBase = String(baseSection).replace(/\n/g, '<br>');
                                     const processedAdd = String(addSection).replace(/\n/g, '<br>');
                                     descriptionDataToShow[sectionKey] = processedBase + "<br><br>" + processedAdd;
@@ -595,11 +704,8 @@ async function handleLogin() {
                     }
                 }
                 
-                // Funkcia buildDescriptionHtml teraz automaticky spracuje \n
                 opisCinnostiHtml = buildDescriptionHtml(descriptionDataToShow);
             }
-            
-            // <-- #### KONIEC NOVEJ ZLUČOVACEJ LOGIKY #### -->
             
             serviceCard.innerHTML = `
                 <button class="card-close-btn" id="close-service-description" aria-label="Zavrieť">
@@ -614,7 +720,6 @@ async function handleLogin() {
                 </div>
             `;
 
-            // 5. Pridanie listenera na nové tlačidlo "X" (Bez zmeny)
             const closeBtn = serviceCard.querySelector('#close-service-description');
             const mainCardsContainer = document.querySelector('.cards-container'); 
             
@@ -629,14 +734,11 @@ async function handleLogin() {
 
     /**
      * Funkcia na vyčistenie detailov zamestnanca
-     * Zobrazí prázdne karty.
      */
     function clearEmployeeDetails() {
-        // 1. Reset hlavičky (Bez zmeny)
         document.querySelector('.employee-header h1').textContent = '---';
         document.querySelector('.employee-id').textContent = 'Osobné číslo: ---';
 
-        // 2. Reset karty "Osobné údaje" (Bez zmeny)
         const personalInfoCard = document.querySelector('#personal-info .info-list');
         if (personalInfoCard) {
             personalInfoCard.innerHTML = `
@@ -655,7 +757,6 @@ async function handleLogin() {
             `;
         }
 
-        // 3. Reset karty "Pracovné zaradenie" (Bez zmeny)
         const jobInfoCard = document.querySelector('#job-info');
         if (jobInfoCard) {
             jobInfoCard.innerHTML = `
@@ -681,7 +782,6 @@ async function handleLogin() {
             `;
         }
         
-        // 4. Reset a skrytie karty "Opis služobnej činnosti" (Bez zmeny)
         const serviceCard = document.querySelector('#service-description-card');
         const mainCardsContainer = document.querySelector('.cards-container');
         if (serviceCard) {
@@ -694,9 +794,7 @@ async function handleLogin() {
     }
 
     /**
-     * <-- UPRAVENÁ FUNKCIA --> (Bez zmeny)
      * Aktualizuje informácie o prihlásenom používateľovi v päte sidebaru.
-     * @param {Object} user - Objekt prihláseného používateľa
      */
     function updateSidebarUser(user) {
         const userNameEl = document.querySelector('#sidebar-user-name');
@@ -715,7 +813,7 @@ async function handleLogin() {
 
     // --- PRIDANIE INTERAKTIVITY ---
 
-    // 1. Reagovanie na kliknutie v zozname zamestnancov (Bez zmeny)
+    // 1. Reagovanie na kliknutie v zozname zamestnancov
     resultsList.addEventListener('click', (e) => {
         if (e.target && e.target.tagName === 'LI') {
             const clickedLi = e.target;
@@ -731,7 +829,7 @@ async function handleLogin() {
         }
     });
 
-    // 2. Reagovanie na písanie do vyhľadávacieho poľa (Bez zmeny)
+    // 2. Reagovanie na písanie do vyhľadávacieho poľa
     searchInput.addEventListener('input', (e) => {
         const searchTerm = e.target.value.toLowerCase().trim();
         const listItems = resultsList.querySelectorAll('li');
@@ -745,7 +843,7 @@ async function handleLogin() {
         });
     });
 
-    // 3. Reagovanie na kliknutie "Odhlásiť sa" (v hlavičke) (Bez zmeny)
+    // 3. Reagovanie na kliknutie "Odhlásiť sa" (v hlavičke)
     const logoutBtn = document.querySelector('#logout-btn');
     if (logoutBtn) {
         logoutBtn.addEventListener('click', (e) => {
@@ -754,7 +852,7 @@ async function handleLogin() {
         });
     }
 
-    // 4. Reagovanie na kliknutie "Pracovné zaradenie" (Otvorenie novej karty) (Bez zmeny)
+    // 4. Reagovanie na kliknutie "Pracovné zaradenie" (Otvorenie novej karty)
     const mainContent = document.querySelector('.main-content');
     const cardsContainer = document.querySelector('.cards-container'); 
     const serviceCard = document.querySelector('#service-description-card'); 
@@ -773,7 +871,7 @@ async function handleLogin() {
 
     // 
     //  ================================================================
-    //  == ZAČIATOK NOVEJ FUNKCIONALITY (5.): EXCEL EXPORT (UPRAVENÉ) == (Bez zmeny)
+    //  == FUNKCIONALITA (5.): EXCEL EXPORT
     //  ================================================================
     // 
     const exportBtn = document.querySelector('#export-excel-btn');
@@ -791,7 +889,6 @@ async function handleLogin() {
                 return;
             }
 
-            // 1. Pripravíme hlavičky (UPRAVENÉ)
             const headers = [
                 "P. č.",
                 "Názov oddelenia",
@@ -808,7 +905,6 @@ async function handleLogin() {
                 "Platová trieda"
             ];
 
-            // 2. Pripravíme dáta (riadky) (UPRAVENÉ)
             const data = allEmployees.map((emp, index) => {
                 let sluzobny_kontakt = '';
                 let sukromny_kontakt = '';
@@ -842,34 +938,28 @@ async function handleLogin() {
                 ];
             });
 
-            // 3. Spojíme hlavičky a dáta
             const sheetData = [headers, ...data];
 
             try {
-                // 4. Vytvoríme "workbook" (zošit)
                 const wb = XLSX.utils.book_new();
                 
-                // 5. Vytvoríme "worksheet" (hárok) z nášho poľa dát
                 const ws = XLSX.utils.aoa_to_sheet(sheetData);
 
-                // (Voliteľné) Nastavenie šírky stĺpcov pre lepšiu čitateľnosť (UPRAVENÉ)
                 ws['!cols'] = [
                     { wch: 5 },  // Por. číslo
                     { wch: 22 }, // Oddelenie
                     { wch: 18 }, // Funkcia
-                    { wch: 9 }, // Kód (NOVÝ)
-                    { wch: 9 }, // OEČ (NOVÝ)
+                    { wch: 9 }, // Kód
+                    { wch: 9 }, // OEČ
                     { wch: 9 },  // Titul
                     { wch: 15 }, // Meno
                     { wch: 18 }, // Priezvisko
-                    { wch: 18 }, // Adresa (Šírka zostáva)
+                    { wch: 18 }, // Adresa
                     { wch: 18 }, // Služobný
                     { wch: 18 }, // Súkromný
                     { wch: 9 }, // Nástup
                     { wch: 9 }  // Pl. trieda
                 ];
-                
-                // <-- #### ZAČIATOK ÚPRAVY: APLIKÁCIA ŠTÝLOV #### -->
                 
                 const range = XLSX.utils.decode_range(ws['!ref']);
                 const adresaColIndex = 8; 
@@ -907,13 +997,9 @@ async function handleLogin() {
                         }
                     }
                 }
-
-                // <-- #### KONIEC ÚPRAVY: APLIKÁCIA ŠTÝLOV #### -->
-
-                // 6. Pridáme hárok do zošitu
+                
                 XLSX.utils.book_append_sheet(wb, ws, "Zoznam zamestnancov");
                 
-                // 7. Spustíme stiahnutie súboru
                 let filename = "zamestnanci";
                 
                 if (activeUser) {
@@ -928,8 +1014,6 @@ async function handleLogin() {
                 filename += ".xlsx";
 
                 XLSX.writeFile(wb, filename);
-                
-                // <-- #### KONIEC ÚPRAVY #### -->
 
             } catch (error) {
                 console.error('Chyba pri vytváraní XLSX súboru:', error);
@@ -939,38 +1023,29 @@ async function handleLogin() {
     }
     // 
     //  ================================================================
-    //  == KONIEC NOVEJ FUNKCIONALITY (5.): EXCEL EXPORT             ==
+    //  == KONIEC FUNKCIONALITY (5.): EXCEL EXPORT
     //  ================================================================
     //
 
     /**
-     * <-- UPRAVENÉ (async): Hlavný spúšťač aplikácie
+     * Hlavný spúšťač aplikácie
      */
-    async function initializeApp() { // <-- PRIDANÉ ASYNC
+    async function initializeApp() { 
         try {
-            // Namiesto checkAndFetchEmployees voláme handleLogin
-            // a čakáme na vyriešenie Promise (ktorý čaká na vyplnenie formulára)
-            
-            // Čakáme na objekt { allEmployeesData, currentUser }
             const authData = await handleLogin();
             
             if (authData) {
-                // Úspech: Máme dáta, môžeme spustiť zvyšok appky
-                // Pošleme oboje do loadData (ktorá je teraz tiež async)
-                await loadData(authData.allEmployeesData, authData.currentUser); // <-- PRIDANÉ AWAIT
+                await loadData(authData.allEmployeesData, authData.currentUser); 
             } else {
-                // Zlyhanie: Overenie zlyhalo (klikli vedľa), skryjeme portál
                 document.body.innerHTML = '<h1 style="padding: 2rem; text-align: center;">Prístup zamietnutý.</h1>';
             }
         } catch (error) {
-            // Zachytíme chyby z handleLogin (napr. zlyhanie načítania configu z Firebase)
             console.error("Kritická chyba pri inicializácii aplikácie:", error);
             document.body.innerHTML = `<h1 style="padding: 2rem; text-align: center;">Kritická chyba aplikácie: ${error.message}.</h1>`;
         }
     }
 
     // --- SPUSTENIE ---
-    // Zavoláme hlavnú funkciu, aby sa všetko spustilo
     initializeApp();
 
 });
