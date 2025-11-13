@@ -136,7 +136,23 @@
             </article>
         </main>
     </div>
-    <!-- Pridajte tieto scripty do vášho index.html -->
+
+    <div id="delete-logs-overlay" class="delete-modal-overlay hidden">
+        <div class="delete-modal">
+            <i class="fas fa-exclamation-triangle"></i>
+            <h3>Potvrdenie akcie</h3>
+            <p>Naozaj chcete permanentne zmazať všetky logy?</p>
+            <div class="modal-actions">
+                <button id="modal-btn-cancel" class="modal-btn cancel">Zrušiť</button>
+                <button id="modal-btn-confirm-delete" class="modal-btn delete">
+                    <span class="btn-text">Áno, zmazať</span>
+                    <span class="btn-loader"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
