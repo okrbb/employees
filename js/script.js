@@ -10,12 +10,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Vaša web app's Firebase configuration (zadaná v požiadavke)
     const firebaseConfig = {
-      apiKey: "__FIREBASE_API_KEY__",
-      authDomain: "hr-portal-okr.firebaseapp.com",
-      projectId: "hr-portal-okr",
-      storageBucket: "hr-portal-okr.firebasestorage.app",
-      messagingSenderId: "515475232306",
-      appId: "1:515475232306:web:6c551e1876252dd3398e2b"
+    apiKey: "__FIREBASE_API_KEY__",
+    authDomain: "okr-portal-7884f.firebaseapp.com",
+    projectId: "okr-portal-7884f",
+    storageBucket: "okr-portal-7884f.firebasestorage.app",
+    messagingSenderId: "252556045186",
+    appId: "1:252556045186:web:5bd1ecf73b4311a5d97d9b"
     };
 
     // Globálne premenné pre Firebase
@@ -50,7 +50,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Selektory pre nový login modál
     const loginOverlay = document.querySelector('#login-modal-overlay');
     const loginForm = document.querySelector('#login-form');
-    const oecInput = document.querySelector('#oec-input');
+    const emailInput = document.querySelector('#email-input'); // <-- NOVÉ
+    const passwordInput = document.querySelector('#password-input'); // <-- UPRAVENÉ
     const loginErrorMsg = document.querySelector('#login-error-msg');
 
 
@@ -107,34 +108,46 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     /**
-     * <-- UPRAVENÁ FUNKCIA (async):
-     * Načíta zamestnancov z Firebase a overí používateľa.
-     * Vráti Promise, ktorý sa vyrieši objektom
-     * obsahujúcim VŠETKÝCH zamestnancov A PRIHLÁSENÉHO používateľa.
-     * @returns {Promise<Object|null>}
-     */
-    async function handleLogin() { // <-- PRIDANÉ ASYNC
-        // Vrátime nový Promise. Vonkajší kód (initializeApp) naň bude čakať.
-        return new Promise(async (resolve, reject) => {
-            let employees;
-            try {
-                // 1. Prihlásenie do Firebase (anonymné)
-                // Toto je potrebné, aby Firestore povolil čítanie dát (ak máte základné pravidlá)
-                try {
-                    await auth.signInAnonymously();
-                    console.log("Firebase: Anonymné prihlásenie úspešné.");
-                } catch (authError) {
-                    console.error("Firebase Auth Error:", authError);
-                    throw new Error('Chyba pri prihlásení do Firebase.');
-                }
+ * <-- KOMPLETNE PREPRACOVANÁ FUNKCIA (async):
+ * Zobrazí modál a čaká na prihlásenie e-mailom a heslom.
+ * Overí používateľa cez Firebase Auth.
+ * Ak je úspešné, načíta VŠETKÝCH zamestnancov A nájde prihláseného používateľa
+ * podľa jeho e-mailu.
+ * @returns {Promise<Object|null>}
+ */
+async function handleLogin() {
+    // Vrátime nový Promise. Vonkajší kód (initializeApp) naň bude čakať.
+    return new Promise((resolve, reject) => {
 
-                // 2. Načítame zamestnancov z FIREBASE namiesto .json
+        // POZNÁMKA: Modál je už viditeľný štandardne, nemusíme robiť nič.
+
+        // 1. Nastavíme listener na formulár
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            loginErrorMsg.style.display = 'none'; // Skryjeme chybu
+            const email = emailInput.value.trim();
+            const password = passwordInput.value.trim();
+
+            if (!email || !password) {
+                loginErrorMsg.textContent = 'Zadajte e-mail aj heslo.';
+                loginErrorMsg.style.display = 'block';
+                return;
+            }
+
+            try {
+                // 2. Pokus o prihlásenie cez Firebase Authentication
+                console.log(`Pokus o prihlásenie pre: ${email}`);
+                const userCredential = await auth.signInWithEmailAndPassword(email, password);
+                console.log("Firebase Auth: Prihlásenie úspešné.", userCredential.user.uid);
+
+                // 3. Po úspešnom prihlásení načítame dáta z Firestore
+                // (Teraz by to malo prejsť, lebo spĺňame pravidlá)
                 console.log("Načítavam zamestnancov z Firebase (kolekcia 'employees')...");
-                const querySnapshot = await db.collection("employees").get(); // <-- FIREBASE VOLANIE
-                
-                employees = [];
+                const querySnapshot = await db.collection("employees").get();
+
+                const employees = [];
                 querySnapshot.forEach((doc) => {
-                    employees.push(doc.data()); // Predpokladáme, že štruktúra dát sedí
+                    employees.push(doc.data());
                 });
                 console.log(`Načítaných ${employees.length} zamestnancov.`);
 
@@ -142,49 +155,62 @@ document.addEventListener('DOMContentLoaded', () => {
                     throw new Error('Neboli nájdení žiadni zamestnanci v databáze.');
                 }
 
-                // 3. Vytvoríme zoznam platných OEC (existujúca logika)
-                validOECs = new Set(
-                    employees
-                        .filter(emp => emp.funkcia === 'vedúci oddelenia' || emp.funkcia === 'vedúci odboru')
-                        .map(emp => emp.oec)
-                );
-                
-                // 4. Modál je štandardne viditeľný pri načítaní stránky (existujúca logika)
+                // 4. Nájdeme prihláseného používateľa v našej databáze
 
-            } catch (error) {
-                console.error('Nepodarilo sa načítať konfiguráciu z Firebase:', error);
-                alert('Chyba pri načítaní konfigu. Aplikáciu nie je možné spustiť.');
-                return reject(error); // Odmietneme Promise
-            }
+                const loggedInUser = employees.find(emp => 
+                        emp.mail && emp.mail.toLowerCase() === email.toLowerCase()
+                    );
 
-            // 5. Nastavíme listener na formulár (existujúca logika - bez zmeny)
-            loginForm.addEventListener('submit', (e) => {
-                e.preventDefault();
-                const input = oecInput.value.trim();
+                if (!loggedInUser) {
+                    // Účet existuje vo Firebase Auth, ale nie je v databáze employees
+                    console.error(`Používateľ ${email} bol prihlásený, ale nenájdený v databáze zamestnancov.`);
+                    throw new Error('Účet nie je priradený k zamestnancovi.');
+                }
 
-                if (validOECs.has(input)) {
+                // 5. Overíme, či má používateľ práva (pôvodná logika)
+                const isVedúci = loggedInUser.funkcia === 'vedúci oddelenia' || loggedInUser.funkcia === 'vedúci odboru';
+
+                if (isVedúci) {
                     // Úspech!
-                    const loggedInUser = employees.find(emp => emp.oec === input);
-                    logLoginAttempt(loggedInUser); 
+                    logLoginAttempt(loggedInUser); // Voliteľné logovanie
                     loginOverlay.classList.add('hidden'); 
                     resolve({ allEmployeesData: employees, currentUser: loggedInUser });
                 } else {
-                    // Zlyhanie
-                    loginErrorMsg.textContent = 'prístup zamietnutý';
-                    loginErrorMsg.style.display = 'block';
-                    oecInput.value = '';
+                    // Nemá práva
+                    throw new Error('Prístup zamietnutý (nedostatočné oprávnenia).');
                 }
-            });
 
-            // 6. (Voliteľné) Ak klikne na pozadie (existujúca logika - bez zmeny)
-            loginOverlay.addEventListener('click', (e) => {
-                if (e.target === loginOverlay) {
-                    alert("Prístup zamietnutý.");
-                    resolve(null); 
+            } catch (error) {
+                // 6. Chyba pri prihlásení
+                console.error("Chyba pri prihlásení:", error);
+                let msg = 'prístup zamietnutý';
+                if (error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
+                    msg = 'Nesprávny e-mail alebo heslo.';
+                } else if (error.message) {
+                    msg = error.message; // Zobrazíme chybu (napr. 'Prístup zamietnutý')
                 }
-            });
+
+                loginErrorMsg.textContent = msg;
+                loginErrorMsg.style.display = 'block';
+                passwordInput.value = ''; // Vymažeme len heslo
+
+                // Odhlásime používateľa pre istotu, ak by sa zasekol v zlom stave
+                await auth.signOut();
+
+                // Promise *nerezolvujeme*, čakáme na ďalší pokus o prihlásenie
+            }
         });
-    }
+
+        // 7. (Voliteľné) Ak klikne na pozadie
+        loginOverlay.addEventListener('click', (e) => {
+            if (e.target === loginOverlay) {
+                // Ak klikne vedľa, neurobíme nič, musí sa prihlásiť
+                // Môžete pridať `reject(new Error('Login cancelled'))` ak chcete
+            }
+        });
+
+    });
+}
 
 
     /**
@@ -214,8 +240,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
             // Načítame platobné tarify z FIREBASE
-            console.log("Načítavam platové tarify z Firebase (kolekcia 'payment')...");
-            const paymentSnapshot = await db.collection("payment").get(); // <-- FIREBASE VOLANIE
+            console.log("Načítavam platové tarify z Firebase (kolekcia 'payments')...");
+            const paymentSnapshot = await db.collection("payments").get(); // <-- FIREBASE VOLANIE
             
             paymentGrades.clear(); // Vyčistíme mapu pre istotu
             paymentSnapshot.forEach(doc => {
@@ -229,8 +255,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
             // Načítame opisy práce z FIREBASE
-            console.log("Načítavam opisy práce z Firebase (kolekcia 'jobDescription')...");
-            const jobDescSnapshot = await db.collection("jobDescription").get(); // <-- FIREBASE VOLANIE
+            console.log("Načítavam opisy práce z Firebase (kolekcia 'jobDescriptions')...");
+            const jobDescSnapshot = await db.collection("jobDescriptions").get(); // <-- FIREBASE VOLANIE
             
             jobDescriptions = {}; // Inicializujeme pre istotu
             jobDescSnapshot.forEach((doc) => {
